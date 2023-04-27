@@ -1,0 +1,107 @@
+pipeline {
+    agent {
+        node {
+        // your node configuration here
+        }
+    }
+
+    stages {
+        stage('Sending Email') {
+            steps {
+                deleteDir()
+
+                script {
+                    def quat = params.quat.toUpperCase()
+                    def build_number = params.build_number
+                    def today = new Date()
+                    def plus14days = today + 14
+                    def formateddate = plus14days.format('yyy-MM-dd')
+
+                    def currentDate = new Date()
+                    def currentMonth = currentDate.getMonth() + 1
+                    def currentYear = currentDate.getYear() + 1900
+                    def quater, year
+
+                    if (currentMonth >= 1 && currentMonth <= 3) {
+                        quater = "Q1"
+                        year = currentYear
+                    } else if (currentMonth >= 4 && currentMonth <= 8) {
+                        quater = "Q2"
+                        year = currentYear
+                    } else {
+                        quater = "Q3"
+                        year = currentYear - 1
+                    }
+
+                    try {
+                        def server = Artifactory.server ''
+                        def downloadSpec = """{
+                            "files": [
+                                {
+                                    "pattern": "${quat}__${year}__${build_number}__*.zip",
+                                    "target": "${quat}__${year}__${build_number}.zip",
+                                    "flat": "true"
+                                }
+                            ]
+                        }"""
+
+                        server.download(downloadSpec)
+
+                        def csvFiles = bat(script: "dir extracted\\*.xlsx /b", returnStdout: true).trim().split('\r\n')
+
+                        for (String file : csvFiles) {
+                            if (file == "unidentified.xlsx") {
+                                println "unidentified.xlsx"
+                            } else {
+                                def recipient = file.split('.xlsx')[0]
+                                println recipient
+                                def recipientname = recipient.concat("@cibc.com")
+                                println recipientname
+
+                                if (recipientname.endsWith(".com")) {
+                                    emailext(
+                                        to: recipientname,
+                                        subject: "FLT User Attestation - ${currentYear}-${quater}: Enterprise GitHub - Due by ${formateddate}",
+                                        body: 'Hello ' + recipient.split('\\.')[0] + ',\n\n' +
+                                            '''<p>You are receiving this email as part of the attestation process on Enterprise GitHub source code repositories. It appears that some of the users reporting to you have access to at least one GitHub repository under PSBT organization.</p>
+
+                                            <p>You can find the attestation document at this SharePoint location:</p>
+
+                                            <ul>
+                                                <li>Your action is required on 2 files Manager.xlsx and Unidentitifed.xlsx</li>
+                                                <li>Each spreadsheet is named after corresponding manager’s name. Look for the Spreadsheet with your name</li>
+                                                <li>You may see multiple rows for some users depending on their level of access for different repositories granted via different GitHub teams. Please attest all rows</li>
+                                                <li>A separate Spreadsheet named “unidentified.csv” is also listed which has all the user accounts that exists on GitHub but not on Active Directory</li>
+                                            </ul>
+
+                                            <p><strong><u>Action:</u></strong></p>
+
+                                            <ol>
+                                                <li>Review both spreadsheets, Manager.xlsx & Unidentified.xlsx</li>
+                                                <li>Attest users by entering “Approve” or “Revoke” in the Attestation column against each individual row. Please attest all rows</li>
+                                                <li>If their access needs to be adjusted/revoked partially, please indicate specifically in the comments section</li>
+                                                <li>Add comments against individual users on “Unidentified.xlsx incase you wish to retain any.</li>
+                                                </ol>
+
+                                                <p>Audit team requires an Email confirmation by Attesters as evidence. Please ensure to reply to DL RBT SCM  once you complete attestation.'''+"<strong>The attestation must be completed by ${formateddate}</strong>."+''' Kindly note that access will be revoked for all unattested users post the deadline</p>
+                                                <p>Thanks and Regards,</p>
+                                                <p>.</p>'''
+                                                ,
+
+                                                mimeType:'text/html'
+
+                        )
+                                }
+                            }
+                        }
+
+                }catch(Exception e){
+                        error("An error occurred while processing csv files : ${e.getMessage()}")
+                    }
+                }
+
+            }
+        }
+
+    }
+}
